@@ -1,7 +1,7 @@
 <?php
 error_reporting(E_ALL);
-if(!class_exists('adriangibbons\phpFITFileAnalysis')) {
-    require __DIR__ . '/../src/phpFITFileAnalysis.php';
+if (!class_exists('TrainerPlan\FIT\FITFileAnalysis')) {
+    require __DIR__ . '/../src/FITFileAnalysis.php';
 }
 
 class PowerTest extends PHPUnit_Framework_TestCase
@@ -13,7 +13,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
     public function setUp()
     {
         $this->base_dir = __DIR__ . '/../demo/fit_files/';
-        $this->pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
+        $this->pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
     }
     
     public function testPower_criticalPower_values()
@@ -56,7 +56,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
     
     public function testPower_power_partitioned()
     {
-        // Calls phpFITFileAnalysis::powerZones();
+        // Calls FITFileAnalysis::powerZones();
         $power_partioned = $this->pFFA->powerPartioned(350);
         
         $this->assertEquals(45.2, $power_partioned['0-193']);
@@ -70,7 +70,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
     
     public function testPower_powerHistogram()
     {
-        // Calls phpFITFileAnalysis::histogram();
+        // Calls FITFileAnalysis::histogram();
         $power_histogram = $this->pFFA->powerHistogram(100);
         
         $this->assertEquals(374, $power_histogram[0]);
@@ -87,7 +87,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
      */
     public function testPower_criticalPower_no_power()
     {
-        $pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . 'road-cycling.fit');
+        $pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . 'road-cycling.fit');
         
         $time_periods = [2,14400];
         $cps = $pFFA->criticalPower($time_periods);
@@ -98,7 +98,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
      */
     public function testPower_powerMetrics_no_power()
     {
-        $pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . 'road-cycling.fit');
+        $pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . 'road-cycling.fit');
         
         $power_metrics = $pFFA->powerMetrics(350);
     }
@@ -108,7 +108,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
      */
     public function testPower_powerHistogram_no_power()
     {
-        $pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . 'road-cycling.fit');
+        $pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . 'road-cycling.fit');
         
         $power_metrics = $pFFA->powerHistogram(100);
     }
@@ -126,7 +126,7 @@ class PowerTest extends PHPUnit_Framework_TestCase
      */
     public function testPower_power_partitioned_no_power()
     {
-        $pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . 'road-cycling.fit');
+        $pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . 'road-cycling.fit');
         
         $power_partioned = $pFFA->powerPartioned(350);
     }

@@ -1,9 +1,12 @@
 {
-    "name": "adriangibbons/php-fit-file-analysis",
+    "name": "trainerplan/fit-file-analysis",
     "type": "library",
     "description": "A PHP class for analysing FIT files created by Garmin GPS devices",
-    "keywords": ["garmin", "fit"],
-    "homepage": "https://github.com/adriangibbons/php-fit-file-analysis",
+    "keywords": [
+        "garmin",
+        "fit"
+    ],
+    "homepage": "https://github.com/fusionPT/fit-file-analysis",
     "require": {
         "ext-json": "*"
     },
@@ -14,7 +17,7 @@
     },
     "autoload": {
         "psr-4": {
-            "adriangibbons\\": "src/"
+            "TrainerPlan\\FIT\\": "src/"
         }
     }
 }

@@ -1,7 +1,7 @@
 <?php
 error_reporting(E_ALL);
-if(!class_exists('adriangibbons\phpFITFileAnalysis')) {
-    require __DIR__ . '/../src/phpFITFileAnalysis.php';
+if (!class_exists('TrainerPlan\FIT\FITFileAnalysis')) {
+    require __DIR__ . '/../src/FITFileAnalysis.php';
 }
 
 class HRTest extends PHPUnit_Framework_TestCase
@@ -13,7 +13,7 @@ class HRTest extends PHPUnit_Framework_TestCase
     public function setUp()
     {
         $this->base_dir = __DIR__ . '/../demo/fit_files/';
-        $this->pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
+        $this->pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
     }
     
     public function testHR_hrMetrics()
@@ -26,7 +26,7 @@ class HRTest extends PHPUnit_Framework_TestCase
     
     public function testHR_hrPartionedHRmaximum()
     {
-        // Calls phpFITFileAnalysis::hrZonesMax()
+        // Calls FITFileAnalysis::hrZonesMax()
         $hr_partioned_HRmaximum = $this->pFFA->hrPartionedHRmaximum(190);
         
         $this->assertEquals(19.4, $hr_partioned_HRmaximum['0-113']);
@@ -38,7 +38,7 @@ class HRTest extends PHPUnit_Framework_TestCase
     
     public function testHR_hrPartionedHRreserve()
     {
-        // Calls phpFITFileAnalysis::hrZonesReserve()
+        // Calls FITFileAnalysis::hrZonesReserve()
         $hr_partioned_HRreserve = $this->pFFA->hrPartionedHRreserve(50, 190);
         
         $this->assertEquals(45.1, $hr_partioned_HRreserve['0-133']);

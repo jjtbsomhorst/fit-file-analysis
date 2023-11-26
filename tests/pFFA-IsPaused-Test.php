@@ -1,7 +1,7 @@
 <?php
 error_reporting(E_ALL);
-if(!class_exists('adriangibbons\phpFITFileAnalysis')) {
-    require __DIR__ . '/../src/phpFITFileAnalysis.php';
+if (!class_exists('TrainerPlan\FIT\FITFileAnalysis')) {
+    require __DIR__ . '/../src/FITFileAnalysis.php';
 }
 
 class IsPausedTest extends PHPUnit_Framework_TestCase
@@ -13,7 +13,7 @@ class IsPausedTest extends PHPUnit_Framework_TestCase
     public function setUp()
     {
         $this->base_dir = __DIR__ . '/../demo/fit_files/';
-        $this->pFFA = new adriangibbons\phpFITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
+        $this->pFFA = new TrainerPlan\FIT\FITFileAnalysis($this->base_dir . $this->filename, ['units' => 'raw']);
     }
     
     public function testIsPaused()
