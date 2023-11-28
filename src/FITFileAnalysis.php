@@ -1766,10 +1766,9 @@ class FITFileAnalysis
             }
         }
 
-        // Remove duplicate timestamps and store original before interpolating
+        // Remove duplicate timestamps
         if (isset($this->data_mesgs['record']['timestamp']) && is_array($this->data_mesgs['record']['timestamp'])) {
             $this->data_mesgs['record']['timestamp'] = array_unique($this->data_mesgs['record']['timestamp']);
-            $this->data_mesgs['record']['timestamp_original'] = $this->data_mesgs['record']['timestamp'];
         }
 
         // Return if no option set
@@ -1910,78 +1909,40 @@ class FITFileAnalysis
             }
         }
 
-        $paused_timestamps = $this->isPaused();
-        $this->filterPauseGapThreshold($paused_timestamps);
-
         if ($bCadence) {
             ksort($this->data_mesgs['record']['cadence']);  // no interpolation; zeros added earlier
         }
         if ($bDistance) {
-            $this->interpolateMissingData($missing_distance_keys, $this->data_mesgs['record']['distance'], false, $paused_timestamps);
+            $this->interpolateMissingData($missing_distance_keys, $this->data_mesgs['record']['distance']);
         }
         if ($bHeartRate) {
-            $this->interpolateMissingData($missing_hr_keys, $this->data_mesgs['record']['heart_rate'], true, $paused_timestamps);
+            $this->interpolateMissingData($missing_hr_keys, $this->data_mesgs['record']['heart_rate']);
         }
         if ($bLatitudeLongitude) {
-            $this->interpolateMissingData($missing_lat_keys, $this->data_mesgs['record']['position_lat'], false, $paused_timestamps);
-            $this->interpolateMissingData($missing_lon_keys, $this->data_mesgs['record']['position_long'], false, $paused_timestamps);
+            $this->interpolateMissingData($missing_lat_keys, $this->data_mesgs['record']['position_lat']);
+            $this->interpolateMissingData($missing_lon_keys, $this->data_mesgs['record']['position_long']);
         }
         if ($bSpeed) {
-            $this->interpolateMissingData($missing_speed_keys, $this->data_mesgs['record']['speed'], false, $paused_timestamps);
+            $this->interpolateMissingData($missing_speed_keys, $this->data_mesgs['record']['speed']);
         }
         if ($bPower) {
-            $this->interpolateMissingData($missing_power_keys, $this->data_mesgs['record']['power'], true, $paused_timestamps);
+            $this->interpolateMissingData($missing_power_keys, $this->data_mesgs['record']['power']);
         }
         if ($bAltitude) {
-            $this->interpolateMissingData($missing_altitude_keys, $this->data_mesgs['record']['altitude'], false, $paused_timestamps);
+            $this->interpolateMissingData($missing_altitude_keys, $this->data_mesgs['record']['altitude']);
         }
         if ($bEnhancedSpeed) {
-            $this->interpolateMissingData($missing_enhanced_speed_keys, $this->data_mesgs['record']['enhanced_speed'], false, $paused_timestamps);
+            $this->interpolateMissingData($missing_enhanced_speed_keys, $this->data_mesgs['record']['enhanced_speed']);
         }
         if ($bEnhancedAltitude) {
-            $this->interpolateMissingData($missing_enhanced_altitude_keys, $this->data_mesgs['record']['enhanced_altitude'], false, $paused_timestamps);
-        }
-    }
-
-    private function filterPauseGapThreshold(&$paused_timestamps)
-    {
-        $gap_threshold_seconds = 60;
-        $i = 0;
-        $checked_timestamps = [];
-
-        foreach ($paused_timestamps as $timestamp => $is_paused) {
-            if (in_array($timestamp, $checked_timestamps, true)) {
-                ++$i;
-                continue;
-            }
-
-            if (!$is_paused) {
-                $checked_timestamps[] = $timestamp;
-                ++$i;
-
-                continue;
-            }
-
-            // look ahead to when was unpaused at
-            $unpaused_at = array_search(false, array_slice($paused_timestamps, $i, null, true));
-
-            if ($unpaused_at - $timestamp <= $gap_threshold_seconds) {
-                for ($x = $timestamp; $x < $unpaused_at; ++$x) {
-                    $paused_timestamps[$x] = false;
-                    $checked_timestamps[] = $x;
-                }
-            } else {
-                $checked_timestamps = array_merge($checked_timestamps, range($timestamp, $unpaused_at));
-            }
-
-            ++$i;
+            $this->interpolateMissingData($missing_enhanced_altitude_keys, $this->data_mesgs['record']['enhanced_altitude']);
         }
     }
 
     /**
      * For the missing keys in the data, interpolate using values either side and insert as necessary.
      */
-    private function interpolateMissingData(&$missing_keys, &$array, $is_int, $paused_timestamps)
+    private function interpolateMissingData(&$missing_keys, &$array)
     {
         if (!is_array($array)) {
             return;  // Can't interpolate if not an array
@@ -1994,23 +1955,19 @@ class FITFileAnalysis
         $count = count($missing_keys);
 
         for ($i = 0; $i < $count; ++$i) {
-            $missing_timestamp = $missing_keys[$i];
-
-            if ($missing_timestamp !== 0) {
-                $is_paused_timestamp = isset($paused_timestamps[$missing_timestamp]) && $paused_timestamps[$missing_timestamp] === true;
-
+            if ($missing_keys[$i] !== 0) {
                 // Interpolating outside recorded range is impossible - use edge values instead
-                if ($missing_timestamp > $max_key) {
-                    $array[$missing_timestamp] = $is_paused_timestamp ? null : $array[$max_key];
+                if ($missing_keys[$i] > $max_key) {
+                    $array[$missing_keys[$i]] = $array[$max_key];
                     continue;
-                } elseif ($missing_timestamp < $min_key) {
-                    $array[$missing_timestamp] = $is_paused_timestamp ? null : $array[$min_key];
+                } elseif ($missing_keys[$i] < $min_key) {
+                    $array[$missing_keys[$i]] = $array[$min_key];
                     continue;
                 }
 
                 $prev_value = $next_value = reset($array);
 
-                while ($missing_timestamp > key($array)) {
+                while ($missing_keys[$i] > key($array)) {
                     $prev_value = current($array);
                     $next_value = next($array);
                 }
@@ -2025,17 +1982,7 @@ class FITFileAnalysis
                 $gap = ($next_value - $prev_value) / $num_points;
 
                 for ($k = 0; $k <= $num_points - 2; ++$k) {
-                    $gap_value = null;
-
-                    if (!$is_paused_timestamp) {
-                        if ($is_int) {
-                            $gap_value = (int) round($prev_value + ($gap * ($k + 1)));
-                        } else {
-                            $gap_value = $prev_value + ($gap * ($k + 1));
-                        }
-                    }
-
-                    $array[$missing_keys[$i + $k]] = $gap_value;
+                    $array[$missing_keys[$i + $k]] = $prev_value + ($gap * ($k + 1));
                 }
                 for ($k = 0; $k <= $num_points - 2; ++$k) {
                     $missing_keys[$i + $k] = 0;
@@ -2474,19 +2421,15 @@ class FITFileAnalysis
      */
     private function sma($array, $time_period)
     {
+        $sma_data = [];
         $data = array_values($array);
         $count = count($array);
 
         for ($i = 0; $i < $count - $time_period; ++$i) {
-            $pieces = array_slice($data, $i, $time_period);
-
-            // if any of the values are 'null' we want to ignore this chunk since null values indicate pauses at that time
-            if (in_array(null, $pieces, true)) {
-                continue;
-            }
-
-            yield array_sum($pieces) / $time_period;
+            $sma_data[] = array_sum(array_slice($data, $i, $time_period)) / $time_period;
         }
+
+        return $sma_data;
     }
 
     /**
@@ -2539,12 +2482,11 @@ class FITFileAnalysis
         $NP_values = ($this->php_trader_ext_loaded) ? trader_sma($this->data_mesgs['record']['power'], 30) : $this->sma($this->data_mesgs['record']['power'], 30);
 
         $NormalisedPower = 0.0;
-        $total_NP_values = 0;
+
         foreach ($NP_values as $value) {  // NP2 Raise all the values obtained in step NP1 to the fourth power
             $NormalisedPower += pow($value, 4);
-            ++$total_NP_values;
         }
-        $NormalisedPower /= $total_NP_values;  // NP3 Find the average of the values in NP2
+        $NormalisedPower /= count($NP_values);  // NP3 Find the average of the values in NP2
         $power_metrics['Normalised Power'] = pow($NormalisedPower, 1 / 4);  // NP4 taking the fourth root of the value obtained in step NP3
 
         $power_metrics['Variability Index'] = $power_metrics['Normalised Power'] / $power_metrics['Average Power'];
@@ -3041,11 +2983,7 @@ class FITFileAnalysis
             echo '<table class=\'table table-condensed table-striped\'>';
             echo '<thead><th>' . $mesg_key . '</th><th>count()</th></thead><tbody>';
             foreach ($mesg as $field_key => $field) {
-                if (is_array($field)) {
-                    echo '<tr><td>' . $field_key . '</td><td>' . count($field) . '</td></tr>';
-                } else {
-                    echo '<tr><td>' . $field_key . '</td><td>' . $field . '</td></tr>';
-                }
+                echo '<tr><td>' . $field_key . '</td><td>' . count($field) . '</td></tr>';
             }
             echo '</tbody></table><br><br>';
         }
