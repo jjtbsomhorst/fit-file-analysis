@@ -49,7 +49,7 @@ class FITFileAnalysis
     private $php_trader_ext_loaded = false;  // Is the PHP Trader extension loaded? Use $this->sma() algorithm if not available.
     private $types = null;                   // Set by $endianness depending on architecture in Definition Message.
     private $garmin_timestamps = false;      // By default the constant FIT_UNIX_TS_DIFF will be added to timestamps.
-
+    private $file_handler = null;            // Use php file stream with fopen, fread, fseek, ftell to read fit file instead of all file content in a variable with substr function
     // Enumerated data looked up by enumData().
     // Values from 'Profile.xls' contained within the FIT SDK.
     private $enum_data = [
@@ -1334,7 +1334,12 @@ class FITFileAnalysis
              * 3.3 FIT File Structure
              * Header . Data Records . CRC
              */
-            $this->file_contents = file_get_contents($file_path_or_data);  // Read the entire file into a string
+            //$this->file_contents = file_get_contents($file_path_or_data);  // Read the entire file into a string
+            $this->file_handler = fopen($file_path_or_data, 'rb');
+            $file_handler = $this->file_handler;
+            register_shutdown_function(function () use ($file_handler) {
+                fclose($file_handler);
+            });
 
         }
 
@@ -1367,7 +1372,9 @@ class FITFileAnalysis
      */
     private function readHeader()
     {
-        $header_size = unpack('C1header_size', substr($this->file_contents, $this->file_pointer, 1))['header_size'];
+        $raw_header_size = fread($this->file_handler, 1);
+        $header_size = unpack('C1header_size', $raw_header_size)['header_size'];
+
         $this->file_pointer++;
 
         if ($header_size != 12 && $header_size != 14) {
@@ -1381,7 +1388,10 @@ class FITFileAnalysis
         if ($header_size > 12) {
             $header_fields .= '/v1crc';
         }
-        $this->file_header = unpack($header_fields, substr($this->file_contents, $this->file_pointer, $header_size - 1));
+        $raw_file_header = fread($this->file_handler, $header_size - 1);
+        $file_header = unpack($header_fields, $raw_file_header);
+
+        $this->file_header = $file_header;
         $this->file_header['header_size'] = $header_size;
 
         $this->file_pointer += $this->file_header['header_size'] - 1;
@@ -1392,10 +1402,10 @@ class FITFileAnalysis
             throw new \Exception('FITFileAnalysis->readHeader(): not a valid FIT file!');
         }
 
-        if (strlen($this->file_contents) - $header_size - 2 !== $this->file_header['data_size']) {
-            // Overwrite the data_size. Seems to be incorrect if there are buffered messages e.g. HR records.
-            //$this->file_header['data_size'] = $this->file_header['crc'] - $header_size + 2;
-        }
+        //if (strlen($this->file_contents) - $header_size - 2 !== $this->file_header['data_size']) {
+        // Overwrite the data_size. Seems to be incorrect if there are buffered messages e.g. HR records.
+        //$this->file_header['data_size'] = $this->file_header['crc'] - $header_size + 2;
+        //}
     }
 
     /**
@@ -1409,8 +1419,11 @@ class FITFileAnalysis
         $local_mesg_type = 0;
         $previousTS = 0;
 
-        while ($this->file_header['header_size'] + $this->file_header['data_size'] > $this->file_pointer) {
-            $record_header_byte = ord(substr($this->file_contents, $this->file_pointer, 1));
+
+        while ($this->file_header['header_size'] + $this->file_header['data_size'] > ftell($this->file_handler)) { //ftell($this->file_handler)
+            //$record_header_byte = ord(fread($this->file_handler, 1));
+            $raw_record_header_byte = fread($this->file_handler, 1);
+            $record_header_byte = ord($raw_record_header_byte);
             $this->file_pointer++;
 
             $compressedTimestamp = false;
@@ -1419,6 +1432,7 @@ class FITFileAnalysis
              * D00001275 Flexible & Interoperable Data Transfer (FIT) Protocol Rev 2.2.pdf
              * Table 4-1. Normal Header Bit Field Description
              */
+            $res = $record_header_byte >> 7;
             if (($record_header_byte >> 7) & 1) {  // Check that it's a normal header
                 // Header with compressed timestamp
                 $message_type = 0;  //always 0: DATA_MESSAGE
@@ -1440,25 +1454,31 @@ class FITFileAnalysis
                      * Table 4-1. Normal Header Bit Field Description
                      */
                     $this->file_pointer++;  // Reserved - IGNORED
-                    $architecture = ord(substr($this->file_contents, $this->file_pointer, 1));  // Architecture
+                    fseek($this->file_handler, ftell($this->file_handler) + 1);
+
+                    $architecture = ord(fread($this->file_handler, 1));  // Architecture
                     $this->file_pointer++;
 
                     $this->types = $this->endianness[$architecture] ?? [];
 
-                    $global_mesg_num = ($architecture === 0) ? unpack('v1tmp', substr($this->file_contents, $this->file_pointer, 2))['tmp'] : unpack('n1tmp', substr($this->file_contents, $this->file_pointer, 2))['tmp'];
+                    $format = ($architecture === 0) ? 'v1tmp' : 'n1tmp';
+                    $raw_global_mesg_num = fread($this->file_handler, 2);
+
+                    $global_mesg_num = unpack($format, $raw_global_mesg_num)['tmp'] ?? null;
+
                     $this->file_pointer += 2;
 
-                    $num_fields = ord(substr($this->file_contents, $this->file_pointer, 1));
+                    $num_fields = ord(fread($this->file_handler, 1));
                     $this->file_pointer++;
 
                     $field_definitions = [];
                     $total_size = 0;
                     for ($i = 0; $i < $num_fields; ++$i) {
-                        $field_definition_number = ord(substr($this->file_contents, $this->file_pointer, 1));
+                        $field_definition_number = ord(fread($this->file_handler, 1));
                         $this->file_pointer++;
-                        $size = ord(substr($this->file_contents, $this->file_pointer, 1));
+                        $size = ord(fread($this->file_handler, 1));
                         $this->file_pointer++;
-                        $base_type = ord(substr($this->file_contents, $this->file_pointer, 1));
+                        $base_type = ord(fread($this->file_handler, 1));
                         $this->file_pointer++;
 
                         $field_definitions[] = ['field_definition_number' => $field_definition_number, 'size' => $size, 'base_type' => $base_type];
@@ -1468,15 +1488,15 @@ class FITFileAnalysis
                     $num_dev_fields = 0;
                     $dev_field_definitions = [];
                     if ($developer_data_flag === 1) {
-                        $num_dev_fields = ord(substr($this->file_contents, $this->file_pointer, 1));
+                        $num_dev_fields = ord(fread($this->file_handler, 1));
                         $this->file_pointer++;
 
                         for ($i = 0; $i < $num_dev_fields; ++$i) {
-                            $field_definition_number = ord(substr($this->file_contents, $this->file_pointer, 1));
+                            $field_definition_number = ord(fread($this->file_handler, 1));
                             $this->file_pointer++;
-                            $size = ord(substr($this->file_contents, $this->file_pointer, 1));
+                            $size = ord(fread($this->file_handler, 1));
                             $this->file_pointer++;
-                            $developer_data_index = ord(substr($this->file_contents, $this->file_pointer, 1));
+                            $developer_data_index = ord(fread($this->file_handler, 1));
                             $this->file_pointer++;
 
                             $dev_field_definitions[] = ['field_definition_number' => $field_definition_number, 'size' => $size, 'developer_data_index' => $developer_data_index];
@@ -1504,18 +1524,31 @@ class FITFileAnalysis
 
                 case DATA_MESSAGE:
                     // Check that we have information on the Data Message.
-                    if (isset($this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']])) {
+                    $global_mesg_num = $this->defn_mesgs[$local_mesg_type]['global_mesg_num'];
+                    $mesg_name = $this->data_mesg_info[$global_mesg_num]['mesg_name'];
+                    if (isset($this->data_mesg_info[$global_mesg_num])) {
                         $tmp_record_array = [];  // Temporary array to store Record data message pieces
                         $tmp_value = null;  // Placeholder for value for checking before inserting into the tmp_record_array
 
                         foreach ($this->defn_mesgs[$local_mesg_type]['field_defns'] as $field_defn) {
                             // Check that we have information on the Field Definition and a valid base type exists.
-                            if (isset($this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]) && isset($this->types[$field_defn['base_type']])) {
+                            if (isset($this->data_mesg_info[$global_mesg_num]['field_defns'][$field_defn['field_definition_number']]) && isset($this->types[$field_defn['base_type']])) {
+                                $field_defns = $this->data_mesg_info[$global_mesg_num]['field_defns'][$field_defn['field_definition_number']];
                                 // Check if it's an invalid value for the type
-                                $tmp_value = unpack($this->types[$field_defn['base_type']]['format'], substr($this->file_contents, $this->file_pointer, $field_defn['size']))['tmp'];
+                                $base_type = $field_defn['base_type'];
+                                $format = $this->types[$base_type]['format'];
+                                $size = $field_defn['size'];
+                                $bytes =  $this->types[$base_type]['bytes'];
+
+                                $raw_binary_data = fread($this->file_handler, $size);
+
+                                if (strlen($raw_binary_data) < 4 && strpos($format, 'V') !== false) {
+                                    continue;
+                                }
+                                $tmp_value = unpack($format, $raw_binary_data)['tmp'] ?? null;
                                 if (
-                                    $tmp_value !== $this->invalid_values[$field_defn['base_type']] ||
-                                    $this->defn_mesgs[$local_mesg_type]['global_mesg_num'] === 132
+                                    $tmp_value !== $this->invalid_values[$base_type] ||
+                                    $global_mesg_num === 132
                                 ) {
                                     // If it's a timestamp, compensate between different in FIT and Unix timestamp epochs
                                     if ($field_defn['field_definition_number'] === 253 && !$this->garmin_timestamps) {
@@ -1523,34 +1556,36 @@ class FITFileAnalysis
                                     }
 
                                     // If it's a Record data message, store all the pieces in the temporary array as the timestamp may not be first...
-                                    if ($this->defn_mesgs[$local_mesg_type]['global_mesg_num'] === 20) {
-                                        $tmp_record_array[$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['field_name']] = $tmp_value / $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['scale'] - $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['offset'];
-                                    } elseif ($this->defn_mesgs[$local_mesg_type]['global_mesg_num'] === 206) {  // Developer Data
-                                        $tmp_record_array[$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['field_name']] = $tmp_value;
+                                    if ($global_mesg_num === 20) {
+                                        $tmp_record_array[$field_defns['field_name']] = $tmp_value / $field_defns['scale'] - $field_defns['offset'];
+                                    } elseif ($global_mesg_num === 206) {  // Developer Data
+                                        $tmp_record_array[$field_defns['field_name']] = $tmp_value;
                                     } else {
-                                        if ($field_defn['base_type'] === 7) {  // Handle strings appropriately
-                                            $this->data_mesgs[$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['mesg_name']][$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['field_name']][] = filter_var($tmp_value, FILTER_SANITIZE_STRING);
+                                        if ($base_type === 7) {  // Handle strings appropriately
+                                            $this->data_mesgs[$mesg_name][$field_defns['field_name']][] = filter_var($tmp_value, FILTER_SANITIZE_STRING);
                                         } else {
                                             // Handle arrays
-                                            if ($field_defn['size'] !== $this->types[$field_defn['base_type']]['bytes']) {
+                                            if ($size !== $bytes) {
                                                 $tmp_array = [];
-                                                $num_vals = $field_defn['size'] / $this->types[$field_defn['base_type']]['bytes'];
+                                                $num_vals = $size / $bytes;
                                                 for ($i = 0; $i < $num_vals; ++$i) {
-                                                    $tmp_array[] = unpack($this->types[$field_defn['base_type']]['format'], substr($this->file_contents, $this->file_pointer + ($i * $this->types[$field_defn['base_type']]['bytes']), $field_defn['size']))['tmp'] / $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['scale'] - $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['offset'];
+                                                    $tmp_array[] = unpack($format, $raw_binary_data)['tmp'] / $field_defns['scale'] - $field_defns['offset'];
                                                 }
-                                                $this->data_mesgs[$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['mesg_name']][$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['field_name']][] = $tmp_array;
+                                                $this->data_mesgs[$mesg_name][$field_defns['field_name']][] = $tmp_array;
                                             } else {
-                                                $this->data_mesgs[$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['mesg_name']][$this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['field_name']][] = $tmp_value / $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['scale'] - $this->data_mesg_info[$this->defn_mesgs[$local_mesg_type]['global_mesg_num']]['field_defns'][$field_defn['field_definition_number']]['offset'];
+                                                $this->data_mesgs[$mesg_name][$field_defns['field_name']][] = $tmp_value / $field_defns['scale'] - $field_defns['offset'];
                                             }
                                         }
                                     }
                                 }
+                            } else {
+                                fseek($this->file_handler, ftell($this->file_handler) + $field_defn['size']);
                             }
                             $this->file_pointer += $field_defn['size'];
                         }
 
                         // Handle Developer Data
-                        if ($this->defn_mesgs[$local_mesg_type]['global_mesg_num'] === 206) {
+                        if ($global_mesg_num === 206) {
                             $developer_data_index = $tmp_record_array['developer_data_index'];
                             $field_definition_number = $tmp_record_array['field_definition_number'];
                             unset($tmp_record_array['developer_data_index']);
@@ -1573,11 +1608,15 @@ class FITFileAnalysis
                             if (!isset($this->dev_field_descriptions[$field_defn['developer_data_index']])) {
                                 continue;
                             }
-
-                            $this->data_mesgs['developer_data'][$this->dev_field_descriptions[$field_defn['developer_data_index']][$field_defn['field_definition_number']]['field_name']]['units'] = $this->dev_field_descriptions[$field_defn['developer_data_index']][$field_defn['field_definition_number']]['units'] ?? null;
+                            $developer_data_index = $field_defn['developer_data_index'];
+                            $field_definition_number = $field_defn['field_definition_number'];
+                            $field_name = $this->dev_field_descriptions[$developer_data_index][$field_definition_number]['field_name'];
+                            $this->data_mesgs['developer_data'][$field_name]['units'] = $this->dev_field_descriptions[$developer_data_index][$field_definition_number]['units'] ?? null;
 
                             // Data
-                            $this->data_mesgs['developer_data'][$this->dev_field_descriptions[$field_defn['developer_data_index']][$field_defn['field_definition_number']]['field_name']]['data'][] = unpack($this->types[$this->dev_field_descriptions[$field_defn['developer_data_index']][$field_defn['field_definition_number']]['fit_base_type_id']]['format'], substr($this->file_contents, $this->file_pointer, $field_defn['size']))['tmp'];
+                            $format = $this->types[$this->dev_field_descriptions[$developer_data_index][$field_definition_number]['fit_base_type_id']]['format'];
+                            $raw_binary_data = fread($this->file_handler, $field_defn['size']);
+                            $this->data_mesgs['developer_data'][$field_name]['data'][] = unpack($format, $raw_binary_data)['tmp'];
 
                             $this->file_pointer += $field_defn['size'];
                         }
@@ -1621,6 +1660,7 @@ class FITFileAnalysis
                         }
                     } else {
                         $this->file_pointer += $this->defn_mesgs[$local_mesg_type]['total_size'];
+                        fseek($this->file_handler, ftell($this->file_handler) + $this->defn_mesgs[$local_mesg_type]['total_size']);
                     }
             }
         }
