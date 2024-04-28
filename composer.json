@@ -6,7 +6,7 @@
         "garmin",
         "fit"
     ],
-    "homepage": "https://github.com/fusionPT/fit-file-analysis",
+    "homepage": "https://github.com/jjtbsomhorst/fit-file-analysis.git",
     "require": {
         "ext-json": "*"
     },
